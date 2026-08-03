@@ -30,6 +30,8 @@ COUPON_WAIT_SECONDS = int(os.environ.get("COUPON_WAIT_SECONDS", "900"))
 TELEGRAM_DELETE_WEBHOOK = os.environ.get("TELEGRAM_DELETE_WEBHOOK", "true").strip().lower() not in {"0", "false", "no"}
 COOKIE_JSON = os.environ.get("WEB3_COOKIE_JSON", "").strip()
 COOKIE_STRING = os.environ.get("WEB3_COOKIE_STRING", "").strip()
+STORAGE_STATE_JSON = os.environ.get("WEB3_STORAGE_STATE_JSON", "").strip()
+STORAGE_STATE_PATH = os.environ.get("WEB3_STORAGE_STATE_PATH", "").strip()
 PROXY_DSN = os.environ.get("PROXY_DSN", "").strip()
 HEADLESS = os.environ.get("HEADLESS", "true").strip().lower() not in {"0", "false", "no"}
 AUTO_CONFIRM_ZERO_ORDER = os.environ.get("AUTO_CONFIRM_ZERO_ORDER", "true").strip().lower() not in {"0", "false", "no"}
@@ -248,6 +250,24 @@ class MonthlyPurchase:
 
     def human_delay(self, a=0.3, b=0.9):
         time.sleep(random.uniform(a, b))
+
+    def load_storage_state(self):
+        raw = STORAGE_STATE_JSON
+        if not raw and STORAGE_STATE_PATH:
+            path = Path(STORAGE_STATE_PATH)
+            if not path.exists():
+                raise RuntimeError(f"WEB3_STORAGE_STATE_PATH 不存在: {path}")
+            raw = path.read_text(encoding="utf-8")
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+        except Exception as e:
+            raise RuntimeError(f"解析 WEB3_STORAGE_STATE_JSON 失败: {e}") from e
+        if not isinstance(data, dict) or not isinstance(data.get("cookies", []), list):
+            raise RuntimeError("WEB3_STORAGE_STATE_JSON 必须是 Playwright storage_state JSON，包含 cookies 字段。")
+        self.log("已加载 Playwright Storage State", "SUCCESS")
+        return data
 
     def add_cookies(self, context):
         cookies = []
@@ -648,6 +668,7 @@ class MonthlyPurchase:
         self.log(f"账号: {'有' if USERNAME else '无'}")
         self.log(f"密码: {'有' if PASSWORD else '无'}")
         self.log(f"Cookie: {'有' if (COOKIE_JSON or COOKIE_STRING) else '无'}")
+        self.log(f"StorageState: {'有' if (STORAGE_STATE_JSON or STORAGE_STATE_PATH) else '无'}")
         self.log(f"优惠码: {'环境变量已有' if self.coupon_code else '等待 Telegram 发送'}")
         if not self.coupon_code:
             if not self.tg.ok:
@@ -662,17 +683,21 @@ class MonthlyPurchase:
 
         with sync_playwright() as p:
             browser = p.chromium.launch(**self.launch_options())
-            context = browser.new_context(
-                viewport={"width": 1440, "height": 1100},
-                device_scale_factor=DEVICE_SCALE_FACTOR,
-                user_agent=(
+            context_options = {
+                "viewport": {"width": 1440, "height": 1100},
+                "device_scale_factor": DEVICE_SCALE_FACTOR,
+                "user_agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/128.0.0.0 Safari/537.36"
                 ),
-                locale="zh-CN",
-                timezone_id="Asia/Shanghai",
-            )
+                "locale": "zh-CN",
+                "timezone_id": "Asia/Shanghai",
+            }
+            storage_state = self.load_storage_state()
+            if storage_state:
+                context_options["storage_state"] = storage_state
+            context = browser.new_context(**context_options)
             context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });

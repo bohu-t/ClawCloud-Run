@@ -34,6 +34,7 @@ jobs:
           WEB3_PASSWORD: ${{ secrets.WEB3_PASSWORD }}
           WEB3_COOKIE_JSON: ${{ secrets.WEB3_COOKIE_JSON }}
           WEB3_COOKIE_STRING: ${{ secrets.WEB3_COOKIE_STRING }}
+          WEB3_STORAGE_STATE_JSON: ${{ secrets.WEB3_STORAGE_STATE_JSON }}
           # COUPON_CODE 可留空；留空时脚本会通过 Telegram 等待你发送当月优惠码。
           COUPON_CODE: ${{ secrets.COUPON_CODE }}
           COUPON_WAIT_SECONDS: '900'

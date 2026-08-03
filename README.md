@@ -25,7 +25,8 @@
 | `COUPON_CODE` | 否 | 固定优惠码兜底。每月都不同的话留空，脚本会等 Telegram 输入。 |
 | `WEB3_USERNAME` | 二选一 | 网站登录账号/邮箱。若配置 Cookie 可不填。 |
 | `WEB3_PASSWORD` | 二选一 | 网站登录密码。若配置 Cookie 可不填。 |
-| `WEB3_COOKIE_JSON` | 二选一 | 浏览器导出的 Cookie JSON。推荐用于需要人机验证/验证码的网站。 |
+| `WEB3_STORAGE_STATE_JSON` | 推荐 | Playwright 导出的登录状态，包含 Cookie 和 localStorage。页面无法 F12 时优先用这个。 |
+| `WEB3_COOKIE_JSON` | 二选一 | 浏览器导出的 Cookie JSON。 |
 | `WEB3_COOKIE_STRING` | 二选一 | Cookie 字符串，例如 `a=1; b=2`。 |
 | `PROXY_DSN` | 否 | 代理，例如 `socks5://user:pass@host:port` 或 `http://host:port`。 |
 
@@ -51,14 +52,29 @@ ABCD1234
 COUPON_WAIT_SECONDS: '900'
 ```
 
-## Cookie 登录建议
+## 手动过滑块并导出登录状态（推荐）
 
-目标站当前直接访问会返回安全滑块验证页面。脚本不会绕过此类验证。更稳的做法是：
+目标站当前直接访问会返回安全滑块验证页面。脚本不会绕过此类验证。推荐在本机手动过一次滑块并导出 Playwright Storage State；这不需要 F12。
 
-1. 在本地浏览器手动打开 `https://web3.52pokemon66.cc/plan/8`。
-2. 手动完成登录和安全验证。
-3. 用浏览器插件或开发者工具导出该站 Cookie。
-4. 将 Cookie 保存到 `WEB3_COOKIE_JSON` 或 `WEB3_COOKIE_STRING`。
+在本机项目目录运行：
+
+```bash
+pip install playwright requests
+playwright install chromium
+python scripts/capture_web3_session.py
+```
+
+脚本会打开浏览器。你在浏览器里手动完成滑块、登录，并确认能进入套餐页或用户中心。然后回到终端按 Enter。
+
+终端会输出一整行 JSON，把它复制到 GitHub Secret：
+
+```text
+WEB3_STORAGE_STATE_JSON
+```
+
+注意：`WEB3_STORAGE_STATE_JSON` 等同登录凭据，不要提交进仓库，也不要发到聊天。
+
+如果你能通过其他方式拿到 Cookie，也可以继续使用 `WEB3_COOKIE_JSON` 或 `WEB3_COOKIE_STRING`。
 
 ## 运行方式
 
@@ -87,6 +103,7 @@ export TG_BOT_TOKEN='你的 Telegram Bot Token'
 export TG_CHAT_ID='你的 Telegram Chat ID'
 export WEB3_USERNAME='你的账号'
 export WEB3_PASSWORD='你的密码'
+# 推荐：export WEB3_STORAGE_STATE_JSON='capture_web3_session.py 输出的一整行 JSON'
 # 或：export WEB3_COOKIE_STRING='a=1; b=2'
 python scripts/monthly_purchase.py
 ```
