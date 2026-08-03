@@ -27,6 +27,7 @@ USERNAME = os.environ.get("WEB3_USERNAME", "").strip()
 PASSWORD = os.environ.get("WEB3_PASSWORD", "").strip()
 COUPON_CODE = os.environ.get("COUPON_CODE", "").strip()
 COUPON_WAIT_SECONDS = int(os.environ.get("COUPON_WAIT_SECONDS", "900"))
+TELEGRAM_DELETE_WEBHOOK = os.environ.get("TELEGRAM_DELETE_WEBHOOK", "true").strip().lower() not in {"0", "false", "no"}
 COOKIE_JSON = os.environ.get("WEB3_COOKIE_JSON", "").strip()
 COOKIE_STRING = os.environ.get("WEB3_COOKIE_STRING", "").strip()
 PROXY_DSN = os.environ.get("PROXY_DSN", "").strip()
@@ -71,10 +72,24 @@ class Telegram:
         except Exception:
             pass
 
+    def delete_webhook(self):
+        """轮询 getUpdates 前清理 webhook；否则 Telegram 会拒绝 getUpdates。"""
+        if not self.ok or not TELEGRAM_DELETE_WEBHOOK:
+            return
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.token}/deleteWebhook",
+                data={"drop_pending_updates": "false"},
+                timeout=10,
+            )
+        except Exception:
+            pass
+
     def flush_updates(self):
         """把 Telegram update offset 刷到最新，避免读到上个月旧优惠码。"""
         if not self.ok:
             return 0
+        self.delete_webhook()
         try:
             r = requests.get(
                 f"https://api.telegram.org/bot{self.token}/getUpdates",
@@ -94,6 +109,7 @@ class Telegram:
 
         支持格式：
         - /coupon ABCD1234
+        - /coupon@你的机器人 ABCD1234
         - 优惠码 ABCD1234
         - 直接发送 ABCD1234
         """
@@ -115,27 +131,48 @@ class Telegram:
             try:
                 r = requests.get(
                     f"https://api.telegram.org/bot{self.token}/getUpdates",
-                    params={"timeout": 20, "offset": offset},
+                    params={"timeout": 20, "offset": offset, "allowed_updates": json.dumps(["message", "edited_message", "channel_post", "edited_channel_post"])},
                     timeout=30,
                 )
                 data = r.json()
                 if not data.get("ok"):
+                    description = data.get("description") or "未知错误"
+                    # 最常见：bot 配了 webhook，getUpdates 会报 409 Conflict。
+                    if "webhook" in description.lower():
+                        self.delete_webhook()
+                        self.send("⚠️ Telegram webhook 与轮询冲突，已尝试清理 webhook，请重新发送优惠码。")
                     time.sleep(2)
                     continue
 
                 for upd in data.get("result", []):
                     offset = upd["update_id"] + 1
-                    msg = upd.get("message") or {}
+                    msg = (
+                        upd.get("message")
+                        or upd.get("edited_message")
+                        or upd.get("channel_post")
+                        or upd.get("edited_channel_post")
+                        or {}
+                    )
                     chat = msg.get("chat") or {}
-                    if str(chat.get("id")) != str(self.chat_id):
+                    chat_id = chat.get("id")
+                    if str(chat_id) != str(self.chat_id):
+                        self.send(f"⚠️ 收到来自其他 chat_id={chat_id} 的消息，已忽略。请确认 TG_CHAT_ID 是否填对。")
                         continue
 
-                    text = (msg.get("text") or "").strip()
+                    text = (msg.get("text") or msg.get("caption") or "").strip()
                     coupon = self.extract_coupon(text)
                     if coupon:
+                        self.send("✅ 已识别优惠码，开始执行购买流程。")
                         return coupon
-            except Exception:
-                pass
+
+                    if text:
+                        self.send(
+                            "⚠️ 没识别出优惠码。请发送：\n"
+                            "<code>/coupon ABCD1234</code>\n"
+                            "或直接发送不带空格的优惠码。"
+                        )
+            except Exception as e:
+                self.send(f"⚠️ 读取 Telegram 消息时出错：{type(e).__name__}")
 
             time.sleep(2)
 
@@ -147,9 +184,9 @@ class Telegram:
             return None
         text = text.strip()
         patterns = [
-            r"^/coupon\s+(.+)$",
+            r"^/coupon(?:@[A-Za-z0-9_]+)?\s+(.+)$",
             r"^(?:优惠码|折扣码|兑换码)[:：\s]+(.+)$",
-            r"^([A-Za-z0-9][A-Za-z0-9_\-]{2,63})$",
+            r"^([^\s]{2,128})$",
         ]
         for pattern in patterns:
             m = re.match(pattern, text, re.IGNORECASE)
@@ -157,7 +194,8 @@ class Telegram:
                 continue
             coupon = m.group(1).strip()
             coupon = coupon.split()[0].strip("'\"`，,。；;")
-            if 3 <= len(coupon) <= 64 and re.match(r"^[A-Za-z0-9_\-]+$", coupon):
+            # 优惠码允许常见可打印符号，但不允许空白、控制字符或过长内容。
+            if 2 <= len(coupon) <= 128 and not re.search(r"\s", coupon):
                 return coupon
         return None
 
