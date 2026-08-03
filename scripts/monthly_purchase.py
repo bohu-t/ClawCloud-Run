@@ -193,9 +193,9 @@ class Telegram:
             if not m:
                 continue
             coupon = m.group(1).strip()
-            coupon = coupon.split()[0].strip("'\"`，,。；;")
-            # 优惠码允许常见可打印符号，但不允许空白、控制字符或过长内容。
-            if 2 <= len(coupon) <= 128 and not re.search(r"\s", coupon):
+            coupon = coupon.strip("'\"`，,。；;")
+            # 优惠码允许中文和常见可打印符号；前后空格会清理，但不会截断中文优惠码。
+            if 2 <= len(coupon) <= 128 and not re.search(r"[\r\n\t]", coupon):
                 return coupon
         return None
 
