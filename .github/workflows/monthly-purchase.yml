@@ -1,0 +1,52 @@
+name: 每月购买入门精灵球套餐
+
+on:
+  schedule:
+    # 每月 1 日 02:15 UTC 运行（北京时间 10:15）
+    - cron: '15 2 1 * *'
+  workflow_dispatch:
+
+jobs:
+  monthly-purchase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: |
+          pip install playwright requests
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: 使用优惠码购买入门精灵球套餐
+        env:
+          TARGET_URL: https://web3.52pokemon66.cc/plan/8
+          LOGIN_URL: https://web3.52pokemon66.cc/login
+          WEB3_USERNAME: ${{ secrets.WEB3_USERNAME }}
+          WEB3_PASSWORD: ${{ secrets.WEB3_PASSWORD }}
+          WEB3_COOKIE_JSON: ${{ secrets.WEB3_COOKIE_JSON }}
+          WEB3_COOKIE_STRING: ${{ secrets.WEB3_COOKIE_STRING }}
+          # COUPON_CODE 可留空；留空时脚本会通过 Telegram 等待你发送当月优惠码。
+          COUPON_CODE: ${{ secrets.COUPON_CODE }}
+          COUPON_WAIT_SECONDS: '900'
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          PROXY_DSN: ${{ secrets.PROXY_DSN }}
+          AUTO_CONFIRM_ZERO_ORDER: 'true'
+        run: python scripts/monthly_purchase.py
+
+      - name: 上传失败截图
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-purchase-screenshots
+          path: '*.png'
+          if-no-files-found: ignore
